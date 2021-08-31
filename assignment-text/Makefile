@@ -8,8 +8,13 @@ clean:
 %.pdf: %.md $(wildcard *.bib) $(wildcard *.csl)
 	pandoc --citeproc $< -o $@
 
+# Note that --standalone is necessary to render the toc and the header-includes.
+# However, --standalone also preserves the YAML block at the top, and GitHub
+# now renders that block in an ugly horizontal table at the top of the README.
+# To avoid the ugly table, turn off the 'yaml_metadata_block' extension in the
+# output format.
 README_OPTS := --standalone --toc --citeproc
-README_OPTS += --shift-heading-level-by=1 --to gfm
+README_OPTS += --shift-heading-level-by=1 --to gfm-yaml_metadata_block
 README_OPTS += --webtex="https://latex.codecogs.com/svg.latex?"
 README_OPTS += --resource-path assignment-text/ --from markdown+rebase_relative_paths
 
