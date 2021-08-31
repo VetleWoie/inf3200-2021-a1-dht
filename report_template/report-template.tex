@@ -1,0 +1,98 @@
+\documentclass[
+    a4paper,
+    twocolumn,
+]{article}
+
+% Input and font encoding
+% --------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+% biblatex --- Bibliography setup
+% --------------------------------------------------
+\usepackage[
+    backend=biber,
+    style=numeric,
+    sorting=none,
+]{biblatex}
+
+\addbibresource{sources.bib}
+
+% hyperref --- Hyperlinks in PDF
+% --------------------------------------------------
+\usepackage[pdfusetitle]{hyperref}
+
+% Set colors of links
+\hypersetup{
+    colorlinks=true,
+    linkcolor=magenta,
+    citecolor=,
+    urlcolor=blue,
+}
+
+% Allow line-breaks in links and URLs
+\hypersetup{breaklinks=true}
+
+% Use the normal document font for URLs rather than monospace
+\urlstyle{same}
+
+% Document Metadata
+% --------------------------------------------------
+\title{INF3200: Mandatory Assignment 1}
+\author{John Doe, Jane Doe}
+\date{\today}
+
+% Document
+% --------------------------------------------------
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+    We implemented Chord and it was awesome.
+\end{abstract}
+
+\section{Introduction}
+
+This is a story all about how
+our Chord~\cite{Stoica2003} got flipped
+turned upside down.
+So I'd like to take a minute
+--- just sit and rest ---
+to tell you how it became the task
+of a course called DS.
+
+\section{Background}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Vivamus pellentesque neque feugiat, tempus arcu eget, egestas purus.
+Etiam vulputate nulla rhoncus, tempus ex ut, ornare est.
+Duis vestibulum dictum orci non condimentum.
+Praesent non blandit leo.
+Aliquam justo metus, molestie et lorem sed, rhoncus tincidunt orci.
+
+Nunc vitae tristique lorem.
+Ut eget quam augue.
+Cras eu lectus iaculis, imperdiet purus malesuada, porta nunc.
+In lacinia, nisi congue rutrum accumsan, ante diam egestas massa, ornare viverra nunc odio sit amet leo.
+Cras sagittis imperdiet sem ac lobortis.
+
+Aliquam erat volutpat.
+Proin dignissim sem sapien, nec aliquet mauris lobortis ac.
+Morbi tincidunt id neque non efficitur.
+In convallis tempor scelerisque.
+Vestibulum ut consequat sapien.
+
+\section{Related Work}
+\section{Project Description}
+\subsection{Architecture}
+\subsection{Design}
+\subsection{Implementation}
+\section{Evaluation}
+\section{Results}
+\section{Discussion}
+\section{Conclusion}
+
+\printbibliography
+
+\end{document}
