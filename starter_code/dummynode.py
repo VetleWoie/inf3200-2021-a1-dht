@@ -7,11 +7,16 @@ import socket
 import socketserver
 import threading
 
+from hashlib import sha1
+
 from http.server import BaseHTTPRequestHandler,HTTPServer
 
 
 object_store = {}
-neighbors = []
+neighbors = {}
+neighbor_ids = []
+id = -1
+m = 6
 
 class NodeHttpHandler(BaseHTTPRequestHandler):
 
@@ -45,12 +50,28 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get('content-length', 0))
 
         key = self.extract_key_from_path(self.path)
-        value = self.rfile.read(content_length)
+        key = find_key(key)
+        print(f"key id: {key}, my id: {neighbor_ids[id]}")
+        if id == 0:
+            if key <= neighbor_ids[id] or key > neighbor_ids[id-1]:
+                value = self.rfile.read(content_length)
 
-        object_store[key] = value
+                object_store[key] = value
 
-        # Send OK response
-        self.send_whole_response(200, "Value stored for " + key)
+                # Send OK response
+                self.send_whole_response(200, "Value stored for " + str(key))
+            else:
+                print(f"Not my id: Try {neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]}")
+        else:
+            if key <= neighbor_ids[id] and key >= neighbor_ids[id-1]:
+                value = self.rfile.read(content_length)
+
+                object_store[key] = value
+
+                # Send OK response
+                self.send_whole_response(200, "Value stored for " + str(key))
+            else:
+                self.send_whole_response(404, f"Not my id: Try {neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]}")
 
     def do_GET(self):
         if self.path.startswith("/storage"):
@@ -90,11 +111,28 @@ def arg_parser():
 class ThreadingHttpServer(HTTPServer, socketserver.ThreadingMixIn):
     pass
 
+def find_key(key):
+    h = sha1()
+    h.update(key.encode())
+    return int(h.digest().hex(), base=16) % (2**m)
+
 def run_server(args):
     global server
     global neighbors
+    global neighbor_ids
+    global id
     server = ThreadingHttpServer(('', args.port), NodeHttpHandler)
-    neighbors = args.neighbors
+    
+    id = find_key(args.neighbors[0])
+    for neighbor in args.neighbors:
+        neighbors[find_key(neighbor)] = neighbor
+    
+    neighbor_ids = list(neighbors.keys())
+    neighbor_ids.sort()
+    id = neighbor_ids.index(id) 
+
+    print("\nNEIGHBORS:\n")
+    print(neighbors)
 
     def server_main():
         print("Starting server on port {}. Neighbors: {}".format(args.port, args.neighbors))
