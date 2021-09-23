@@ -6,17 +6,34 @@ import signal
 import socket
 import socketserver
 import threading
-
+import logging
 from hashlib import sha1
+import requests
 
 from http.server import BaseHTTPRequestHandler,HTTPServer
-
 
 object_store = {}
 neighbors = {}
 neighbor_ids = []
 id = -1
 m = 6
+
+def find_key(key):
+    h = sha1()
+    h.update(key.encode())
+    return int(h.digest().hex(), base=16) % (2**m)
+
+def check_key(key):
+    if id == 0:
+        if key <= neighbor_ids[id] or key > neighbor_ids[id-1]:
+            return True, None
+        else:
+            return False, neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]
+    else:
+        if key <= neighbor_ids[id] and key >= neighbor_ids[id-1]:
+            return True, None
+        else:
+            return False, neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]
 
 class NodeHttpHandler(BaseHTTPRequestHandler):
 
@@ -49,39 +66,39 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
     def do_PUT(self):
         content_length = int(self.headers.get('content-length', 0))
 
-        key = self.extract_key_from_path(self.path)
-        key = find_key(key)
-        print(f"key id: {key}, my id: {neighbor_ids[id]}")
-        if id == 0:
-            if key <= neighbor_ids[id] or key > neighbor_ids[id-1]:
-                value = self.rfile.read(content_length)
-
-                object_store[key] = value
-
-                # Send OK response
-                self.send_whole_response(200, "Value stored for " + str(key))
-            else:
-                print(f"Not my id: Try {neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]}")
+        extern_key = self.extract_key_from_path(self.path)
+        key = find_key(extern_key)
+        logging.debug(f"PUT:key id: {key}, my id: {neighbor_ids[id]}")
+        local_key, successor = check_key(key)
+        value = self.rfile.read(content_length)
+        if local_key:
+            logging.info(f"PUT: Storing value {value} on intern key {key} extern key {extern_key}")
+            object_store[key] = value
+            self.send_whole_response(200, f"Value stored for {str(extern_key)} \n")
         else:
-            if key <= neighbor_ids[id] and key >= neighbor_ids[id-1]:
-                value = self.rfile.read(content_length)
-
-                object_store[key] = value
-
-                # Send OK response
-                self.send_whole_response(200, "Value stored for " + str(key))
-            else:
-                self.send_whole_response(404, f"Not my id: Try {neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]}")
+            logging.info(f"PUT:Not local key, sending {value} on key {extern_key} to {successor}")
+            r = requests.put(f"http://{successor}/storage/{extern_key}", data=value)
+            logging.debug(f"PUT: Got status {r.status_code}, response: {r.text}")
+            self.send_whole_response(r.status_code, r.text)
 
     def do_GET(self):
         if self.path.startswith("/storage"):
-            key = self.extract_key_from_path(self.path)
-
-            if key in object_store:
-                self.send_whole_response(200, object_store[key])
+            extern_key = self.extract_key_from_path(self.path)
+            key = find_key(extern_key)
+            local_key, successor = check_key(key)
+            if local_key:
+                if key in object_store:
+                    logging.info(f"GET:Responding with value {object_store[key]} at intern key {key}")
+                    self.send_whole_response(200, object_store[key])
+                else:
+                    logging.info(f"GET:No data stored at intern key {key}")
+                    self.send_whole_response(404,
+                        "No object with key '%s' in this system\n" % key)
             else:
-                self.send_whole_response(404,
-                        "No object with key '%s' on this node" % key)
+                logging.debug(f"GET: Not my id, requesting from {successor}")
+                r = requests.get(f"http://{successor}/storage/{extern_key}")
+                logging.debug(f"GET: Got status {r.status_code} response: {r.text}")
+                self.send_whole_response(r.status_code, r.text)
 
         elif self.path.startswith("/neighbors"):
             self.send_whole_response(200, neighbors)
@@ -111,16 +128,13 @@ def arg_parser():
 class ThreadingHttpServer(HTTPServer, socketserver.ThreadingMixIn):
     pass
 
-def find_key(key):
-    h = sha1()
-    h.update(key.encode())
-    return int(h.digest().hex(), base=16) % (2**m)
-
 def run_server(args):
     global server
     global neighbors
     global neighbor_ids
     global id
+
+    logging.basicConfig(filename=f'logs/node_{args.port}.log', level=logging.DEBUG)
     server = ThreadingHttpServer(('', args.port), NodeHttpHandler)
     
     id = find_key(args.neighbors[0])
@@ -130,17 +144,15 @@ def run_server(args):
     neighbor_ids = list(neighbors.keys())
     neighbor_ids.sort()
     id = neighbor_ids.index(id) 
-
-    print("\nNEIGHBORS:\n")
-    print(neighbors)
+    logging.debug("NEIGHBORS:", neighbors)
 
     def server_main():
-        print("Starting server on port {}. Neighbors: {}".format(args.port, args.neighbors))
+        logging.info("Starting server on port {}. Neighbors: {}".format(args.port, args.neighbors))
         server.serve_forever()
-        print("Server has shut down")
+        logging.info("Server has shut down")
 
     def shutdown_server_on_signal(signum, frame):
-        print("We get signal (%s). Asking server to shut down" % signum)
+        logging.info("We get signal (%s). Asking server to shut down" % signum)
         server.shutdown()
 
     # Start server in a new thread, because server HTTPServer.serve_forever()
@@ -164,10 +176,10 @@ def run_server(args):
     # able to kill it with kill -9.
     thread.join(args.die_after_seconds)
     if thread.is_alive():
-        print("Reached %.3f second timeout. Asking server to shut down" % args.die_after_seconds)
+        logging.info("Reached %.3f second timeout. Asking server to shut down" % args.die_after_seconds)
         server.shutdown()
 
-    print("Exited cleanly")
+    logging.info("Exited cleanly")
 
 if __name__ == "__main__":
 
