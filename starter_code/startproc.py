@@ -9,20 +9,10 @@ def signal_handle(signum, frame):
     for p in PROCS:
         p.send_signal(SIGTERM)
         exit()
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} [number of nodes] {{starter port}}")
-        exit(1)
-    
-    if len(sys.argv) == 3:
-        port = sys.argv[2]
-    else:
-        port = 8000
-    
+
+def run_local(num_nodes,start_port):
     signal(SIGTERM, signal_handle)
     signal(SIGINT, signal_handle)
-
-    num_nodes = int(sys.argv[1])
 
     commands = []
     
@@ -56,7 +46,30 @@ if __name__ == '__main__':
                 print("Error: One proces exited with the following error:\n\n")
                 print(err.decode())
                 signal_handle(0,0)
-                
+
+def run_cluster():
+    pass
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print(f"Usage: {sys.argv[0]} [local/cluster] [number of nodes] {{starter port}}")
+        exit(1)
+    
+    if len(sys.argv) == 4:
+        port = sys.argv[3]
+    else:
+        port = 64209
+
+    num_nodes = int(sys.argv[2])
+    if sys.argv[1].lower() in ['local', 'l']:
+        run_local(num_nodes,port)
+    elif sys.argv[1].lower() in ['cluster', 'c']:
+        run_cluster(num_nodes, port)
+    else:
+        print("Error: Unknown run option")
+        exit(-1)     
+    
+                    
         
 
 

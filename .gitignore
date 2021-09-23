@@ -1,1 +1,4 @@
-README.html
+__pycahce__
+*.pyc
+starter_code/logs/*
+.vscode/*
