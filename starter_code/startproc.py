@@ -1,4 +1,4 @@
-from subprocess import Popen, PIPE 
+from subprocess import Popen, PIPE
 from signal import SIGINT, signal, SIGTERM
 import sys
 
@@ -10,7 +10,7 @@ def signal_handle(signum, frame):
         p.send_signal(SIGTERM)
         exit()
 
-def run_local(num_nodes,start_port):
+def run_local(num_nodes,port):
     signal(SIGTERM, signal_handle)
     signal(SIGINT, signal_handle)
 
@@ -47,8 +47,20 @@ def run_local(num_nodes,start_port):
                 print(err.decode())
                 signal_handle(0,0)
 
-def run_cluster():
-    pass
+def findNodes(numNodes):
+        ##Find available nodes
+        with Popen(['sh','/share/apps/ifi/available-nodes.sh'], stdin=PIPE, stdout=PIPE, stderr=PIPE) as p: 
+            availableNodes, err = p.communicate()
+            availableNodes = availableNodes.splitlines()
+
+        if len(availableNodes) < numNodes:
+            sys.stderr.write("Not enough available nodes. Availabe Nodes: " + str(len(availableNodes)) + " Got: " + str(numNodes) + "\n")
+            exit()
+        print(availableNodes)
+
+def run_cluster(num_nodes, port):
+    findNodes(num_nodes)
+    
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
