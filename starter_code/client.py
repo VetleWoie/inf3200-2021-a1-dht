@@ -98,6 +98,7 @@ def get_value(node, key):
     return value
 
 def get_neighbours(node):
+    print(f"Connecting to node: {node}")
     conn = http.client.HTTPConnection(node)
     conn.request("GET", "/neighbors")
     resp = conn.getresponse()
@@ -110,11 +111,14 @@ def get_neighbours(node):
     return neighbors
 
 def walk_neighbours(start_nodes):
+    print(f"start nodes: {start_nodes}")
     to_visit = start_nodes
     visited = set()
     while to_visit:
+        print(f"to visit: {to_visit}")
         next_node = to_visit.pop()
         visited.add(next_node)
+        print(f"visited: {visited}")
         neighbors = get_neighbours(next_node)
         for neighbor in neighbors:
             if neighbor not in visited:
@@ -134,7 +138,7 @@ def simple_check(nodes):
             put_value(nodes[node_index], key, value)
             returned = get_value(nodes[node_index], key)
 
-            if returned == value:
+            if returned.decode() == value:
                 successes+=1
         except:
             pass
@@ -158,7 +162,7 @@ def retrieve_from_different_nodes(nodes):
             put_value(random.choice(nodes), key, value)
             returned = get_value(random.choice(nodes), key)
 
-            if returned == value:
+            if returned.decode() == value:
                 successes+=1
         except:
             pass
@@ -187,8 +191,10 @@ def get_nonexistent_key(nodes):
         print(e)
 
 def main(args):
-
     nodes = set(args.nodes)
+    print(f"nodes: {nodes}")
+    print(f"arg nodes: {args.nodes}")
+
     nodes |= walk_neighbours(args.nodes)
     nodes = list(nodes)
     print("%d nodes registered: %s" % (len(nodes), ", ".join(nodes)))
@@ -210,3 +216,4 @@ if __name__ == "__main__":
     parser = arg_parser()
     args = parser.parse_args()
     main(args)
+
