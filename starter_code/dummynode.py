@@ -23,17 +23,23 @@ def find_key(key):
     h.update(key.encode())
     return int(h.digest().hex(), base=16) % (2**m)
 
+def get_successor():
+    return neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]
+
+def get_predecessor():
+    return neighbors[neighbor_ids[(id-1) % len(neighbor_ids)]]
+
 def check_key(key):
     if id == 0:
         if key <= neighbor_ids[id] or key > neighbor_ids[id-1]:
             return True, None
         else:
-            return False, neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]
+            return False, get_successor()
     else:
         if key <= neighbor_ids[id] and key >= neighbor_ids[id-1]:
             return True, None
         else:
-            return False, neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]
+            return False, get_successor()
 
 class NodeHttpHandler(BaseHTTPRequestHandler):
 
@@ -101,8 +107,14 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
                 self.send_whole_response(r.status_code, r.text)
 
         elif self.path.startswith("/neighbors"):
-            self.send_whole_response(200, neighbors)
-
+            response = [get_successor(), get_predecessor()]
+            logging.info(f"GET: Responding with successors: {response}")
+            self.send_whole_response(200, response)
+        elif self.path.startswith("/66"):
+            successor = get_successor()
+            logging.info(f"Got order 66, terminate {successor}")
+            r = requests.get(f"http://{successor}/66")
+            server.shutdown()
         else:
             self.send_whole_response(404, "Unknown path: " + self.path)
 
