@@ -4,6 +4,7 @@ from signal import SIGINT, signal, SIGTERM
 import sys
 
 PROCS = []
+NODES = []
 
 def signal_handle(signum, frame):
     print("Terminating processes")
@@ -63,13 +64,13 @@ def findNodes(numNodes):
 
 def run_cluster(num_nodes, port, cont=False):
     path = "/home/vho023/3200/inf3200-2021-a1-dht/starter_code"
-    nodes = findNodes(num_nodes)
+    NODES = findNodes(num_nodes)
     neighbors = []
-    for node in nodes:
+    for node in NODES:
         neighbors.append(f'{node}:{port}')
     
     command = []
-    for i,node in enumerate(nodes):
+    for i,node in enumerate(NODES):
         command = ["ssh", node, "python3", f"{path}/node.py", "-p", f"{port}"]
         tmp = neighbors[0]
         neighbors[0] = neighbors[i]
@@ -90,6 +91,13 @@ def run_cluster(num_nodes, port, cont=False):
                     print("Error: One proces exited with the following error:\n\n")
                     print(err.decode())
                     signal_handle(0,0)
+    return PROCS, NODES
+
+def kill_cluster(nodes, user):
+    for node in nodes:
+        command = ['ssh', node.split(':')[0], 'killall', '-u', user]
+        Popen(command,stdin=PIPE, stdout=PIPE, stderr=PIPE)
+        
 
     
 
