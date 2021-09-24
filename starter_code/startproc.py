@@ -11,7 +11,7 @@ def signal_handle(signum, frame):
         p.send_signal(SIGTERM)
         exit()
 
-def run_local(num_nodes,port):
+def run_local(num_nodes,port, cont=False):
     signal(SIGTERM, signal_handle)
     signal(SIGINT, signal_handle)
 
@@ -35,18 +35,20 @@ def run_local(num_nodes,port):
             Popen(command, stdin=PIPE, stdout=PIPE, stderr=PIPE)
             )
 
-    while(True):
-        if len(PROCS) == 0:
-            break
-        for p in PROCS:
-            if p.poll() is None:
-                pass
-            else:
-                #Check wether proces terminated by error
-                output, err = p.communicate()
-                print("Error: One proces exited with the following error:\n\n")
-                print(err.decode())
-                signal_handle(0,0)
+    if not cont:
+        while(True):
+            if len(PROCS) == 0:
+                break
+            for p in PROCS:
+                if p.poll() is None:
+                    pass
+                else:
+                    #Check wether proces terminated by error
+                    output, err = p.communicate()
+                    print("Error: One proces exited with the following error:\n\n")
+                    print(err.decode())
+                    signal_handle(0,0)
+    return PROCS
 
 def findNodes(numNodes):
         ##Find available nodes
@@ -59,7 +61,7 @@ def findNodes(numNodes):
             exit()
         return availableNodes[:numNodes]
 
-def run_cluster(num_nodes, port):
+def run_cluster(num_nodes, port, cont):
     path = "/home/vho023/3200/inf3200-2021-a1-dht/starter_code"
     nodes = findNodes(num_nodes)
     neighbors = []
@@ -75,18 +77,19 @@ def run_cluster(num_nodes, port):
         print(f"Running: {command+neighbors}")
         PROCS.append(Popen(command+neighbors,stdin=PIPE, stdout=PIPE, stderr=PIPE))
     
-    while(True):
-        if len(PROCS) == 0:
-            print("Exiting")
-        for p in PROCS:
-            if p.poll() is None:
-                pass
-            else:
-                #Check wether proces terminated by error
-                output, err = p.communicate()
-                print("Error: One proces exited with the following error:\n\n")
-                print(err.decode())
-                signal_handle(0,0)
+    if not cont:
+        while(True):
+            if len(PROCS) == 0:
+                print("Exiting")
+            for p in PROCS:
+                if p.poll() is None:
+                    pass
+                else:
+                    #Check wether proces terminated by error
+                    output, err = p.communicate()
+                    print("Error: One proces exited with the following error:\n\n")
+                    print(err.decode())
+                    signal_handle(0,0)
 
     
 
