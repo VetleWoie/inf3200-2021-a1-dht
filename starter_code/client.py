@@ -92,7 +92,7 @@ def get_value(node, key):
     for h, hv in headers:
         if h=="Content-type":
             contenttype = hv
-    if contenttype == "text/plain":
+    if "text/plain" in contenttype:
         value = value.decode("utf-8")
     conn.close()
     return value
@@ -138,7 +138,7 @@ def simple_check(nodes):
             put_value(nodes[node_index], key, value)
             returned = get_value(nodes[node_index], key)
 
-            if returned.decode() == value:
+            if returned == value:
                 successes+=1
         except:
             pass
@@ -162,7 +162,7 @@ def retrieve_from_different_nodes(nodes):
             put_value(random.choice(nodes), key, value)
             returned = get_value(random.choice(nodes), key)
 
-            if returned.decode() == value:
+            if returned == value:
                 successes+=1
         except:
             pass
