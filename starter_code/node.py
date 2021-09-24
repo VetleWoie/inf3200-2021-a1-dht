@@ -16,7 +16,7 @@ object_store = {}
 neighbors = {}
 neighbor_ids = []
 id = -1
-m = 6
+m = 35
 
 def find_key(key):
     h = sha1()
@@ -71,6 +71,7 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         content_length = int(self.headers.get('content-length', 0))
+        content_type = self.headers.get('Content-type',0)
 
         extern_key = self.extract_key_from_path(self.path)
         key = find_key(extern_key)
@@ -78,7 +79,7 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
         local_key, successor = check_key(key)
         value = self.rfile.read(content_length)
         if local_key:
-            logging.info(f"PUT: Storing value {value} on intern key {key} extern key {extern_key}")
+            logging.info(f"PUT: Storing value {value} of type {content_type} on intern key {key} extern key {extern_key}")
             object_store[key] = value
             self.send_whole_response(200, f"Value stored for {str(extern_key)} \n")
         else:
