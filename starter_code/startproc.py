@@ -1,3 +1,4 @@
+from os import path
 from subprocess import Popen, PIPE
 from signal import SIGINT, signal, SIGTERM
 import sys
@@ -21,7 +22,7 @@ def run_local(num_nodes,port):
     for i in range(port, port + num_nodes):
         ports.append(ip + str(i))
 
-    command = ["python3", "dummynode.py", "-p"]
+    command = ["python3", "node.py", "-p"]
     for i in range(num_nodes):
         tmp = ports[0]
         ports[0] = ports[i]
@@ -51,15 +52,42 @@ def findNodes(numNodes):
         ##Find available nodes
         with Popen(['sh','/share/apps/ifi/available-nodes.sh'], stdin=PIPE, stdout=PIPE, stderr=PIPE) as p: 
             availableNodes, err = p.communicate()
-            availableNodes = availableNodes.splitlines()
+            availableNodes = availableNodes.decode().splitlines()
 
         if len(availableNodes) < numNodes:
             sys.stderr.write("Not enough available nodes. Availabe Nodes: " + str(len(availableNodes)) + " Got: " + str(numNodes) + "\n")
             exit()
-        print(availableNodes)
+        return availableNodes[:numNodes]
 
 def run_cluster(num_nodes, port):
-    findNodes(num_nodes)
+    path = "/home/vho023/3200/inf3200-2021-a1-dht/starter_code"
+    nodes = findNodes(num_nodes)
+    neighbors = []
+    for node in nodes:
+        neighbors.append(f'{node}:{port}')
+    
+    command = []
+    for i,node in enumerate(nodes):
+        command = ["ssh", node, "python3", f"{path}/node.py", "-p", f"{port}"]
+        tmp = neighbors[0]
+        neighbors[0] = neighbors[i]
+        neighbors[i] = tmp
+        print(f"Running: {command+neighbors}")
+        PROCS.append(Popen(command+neighbors,stdin=PIPE, stdout=PIPE, stderr=PIPE))
+    
+    while(True):
+        if len(PROCS) == 0:
+            print("Exiting")
+        for p in PROCS:
+            if p.poll() is None:
+                pass
+            else:
+                #Check wether proces terminated by error
+                output, err = p.communicate()
+                print("Error: One proces exited with the following error:\n\n")
+                print(err.decode())
+                signal_handle(0,0)
+
     
 
 if __name__ == '__main__':
