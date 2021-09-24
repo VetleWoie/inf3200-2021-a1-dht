@@ -61,7 +61,7 @@ def findNodes(numNodes):
             exit()
         return availableNodes[:numNodes]
 
-def run_cluster(num_nodes, port, cont):
+def run_cluster(num_nodes, port, cont=False):
     path = "/home/vho023/3200/inf3200-2021-a1-dht/starter_code"
     nodes = findNodes(num_nodes)
     neighbors = []
