@@ -107,7 +107,7 @@ if __name__ == '__main__':
         exit(1)
     
     if len(sys.argv) == 4:
-        port = sys.argv[3]
+        port = int(sys.argv[3])
     else:
         port = 64209
 

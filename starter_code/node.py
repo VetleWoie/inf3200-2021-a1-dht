@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+from http.client import NOT_EXTENDED
 import json
 import re
 import signal
@@ -9,42 +10,157 @@ import threading
 import logging
 from hashlib import sha1
 import requests
-
+import time
 from http.server import BaseHTTPRequestHandler,HTTPServer
 
-object_store = {}
-neighbors = {}
-neighbor_ids = []
-id = -1
-m = 35
+CHRASHED = False
+M = 6
+chord = -1
 
-def find_key(key):
-    h = sha1()
-    h.update(key.encode())
-    return int(h.digest().hex(), base=16) % (2**m)
+class Chord():
+    def __init__(self, args):
+        logging.info(f"Initializing chord ring")
+        self.object_store = {}
+        self.successor = -1
+        self.predecessor = -1
+        self.hostname = args.neighbors[0]
+        self.id = self.find_key(self.hostname)
 
-def get_successor():
-    return neighbors[neighbor_ids[(id+1) % len(neighbor_ids)]]
+        self.create_ring()
+        self.start_stabilize_timer()
+        logging.debug(f"Succsessor: {self.successor}")
+        logging.debug(f"Predecessor: {self.predecessor}")
 
-def get_predecessor():
-    return neighbors[neighbor_ids[(id-1) % len(neighbor_ids)]]
+    def start_stabilize_timer(self):
+        self.stabilize_thread = threading.Thread(target=self.stabilize_timer, daemon=True)
+        self.stabilize_thread.start()
 
-def check_key(key):
-    if id == 0:
-        if key <= neighbor_ids[id] or key > neighbor_ids[id-1]:
-            return True, None
+    def stabilize_timer(self):
+        while not CHRASHED:
+            time.sleep(1)
+            self.stabilize()
+            self.check_predecessor()
+
+    def create_ring(self,):
+        self.predecessor = None
+        self.successor = [self.id, self.hostname]
+
+    def join(self,host):
+        self.predecessor = None
+        r = requests.get(f"http://{host}/successor/{self.hostname}")
+        self.successor = [self.find_key, r.text]
+        r = requests.post(f"http://{self.successor[1]}/notify/{self.hostname}")
+        self.stabilize()
+        return r.status_code, f"Connected to {self.successor[1]}"
+
+    def stabilize(self,):
+        #Ask for succsessors predecessor
+        #IF succsessors predecessors is self, then ok
+        # else change successor to succsessors predecessor
+        r = requests.get(f"http://{self.successor[1]}/predecessor/")
+        if r.status_code == 404 or r.status_code == 500:
+            return
+        successor_predecessor = self.find_key(r.text)
+        if not successor_predecessor == self.id:
+            self.successor[0] = successor_predecessor
+            self.successor[1] = r.text
+            r = requests.post(f"http://{self.successor[1]}/notify/{self.hostname}")
+
+    def notify(self,possible_predecessor):
+        #Someone thinks they might be our predeccessor
+        #If predecessor is None or possible_predecessor is between self and current predecessor
+        #Update predecessor
+        predecessor_id = self.find_key(possible_predecessor)
+        is_predecessor, _ = self.check_key(predecessor_id)
+        if is_predecessor:
+            self.predecessor = [predecessor_id, possible_predecessor]
+            return 200, "Updated predecessor"
         else:
-            return False, get_successor()
-    else:
-        if key <= neighbor_ids[id] and key >= neighbor_ids[id-1]:
-            return True, None
+            return 400, "Not my predecessor"
+
+    def successor_left(self, new_successor):
+        logging.info(f"Updating to new successor: {new_successor}")
+        self.successor[0] = self.find_key(new_successor)
+        self.successor[1] = new_successor
+        if(self.successor[0] != self.id):
+            r = requests.post(f"http://{self.successor[1]}/notify/{self.hostname}")
+
+    def predecessor_left(self):
+        self.predecessor = None
+    
+    def leave(self):
+        if self.successor[0] == self.id:
+            logging.info("No ring to leave, I am alone")
+            return 200, "No ring to leave"
+        r = requests.delete(f"http://{self.successor[1]}/predecessor")
+        if self.predecessor is not None:
+            r = requests.delete(f"http://{self.predecessor[1]}/successor/{self.successor[1]}")
+        logging.info("Notified succsessor and predecessor of leaving, starting own ring")
+        self.create_ring()
+        return 200, "Left ring and started own ring"
+    
+    def node_crash(self, hostname, successor):
+        if self.find_key(hostname) == self.successor[0]:
+            self.successor = [self.find_key(successor), successor]
+            if not self.successor[0] == self.id:
+                r = requests.post(f"http://{self.successor[1]}/notify/{self.hostname}")
         else:
-            return False, get_successor()
+            r = requests.delete(f"http://{self.successor[1]}/node_crash/{hostname}/{successor}")
+        
+
+    def check_predecessor(self,):
+        #Check if predecessor is still available
+        #Make dummy request
+        if self.predecessor == None:
+            return
+
+        r = requests.get(f"http://{self.predecessor[1]}/predecessor/")
+        if r.status_code == 500:
+            predecessor = self.predecessor[1]
+            self.predecessor = None
+            self.node_crash(predecessor, self.hostname)
+
+    def find_key(self,key):
+        h = sha1()
+        h.update(key.encode())
+        return int(h.digest().hex(), base=16) % (2**M)
+
+    def get_successor(self,):
+        return self.successor[1]
+
+    def get_predecessor(self,):
+        return self.predecessor[1] if self.predecessor is not None else None
+
+    def check_key(self,key):
+        if self.predecessor is None:
+            return True,None
+        elif self.predecessor[0] > self.id:
+            if key <= self.id or key > self.predecessor[0]:
+                return True, None
+            else:
+                return False, self.successor[1]            
+        else:
+            if key <= self.id and key > self.predecessor[0]:
+                return True, None
+            else:
+                return False, self.successor[1]
+    
+    def get_info(self):
+        info = {
+            "node_hash": hex(self.id),
+            "successor": self.successor[1],
+            "others": [self.predecessor] if self.predecessor is not None else [],
+        }
+        return json.dumps(info)
 
 class NodeHttpHandler(BaseHTTPRequestHandler):
 
-    def send_whole_response(self, code, content, content_type="text/plain"):
-
+    def send_whole_response(self, code, content, content_type="text/plain", inter_com=False):
+        global CHRASHED
+        if CHRASHED and not inter_com:
+            logging.info("Simulating crash: returning code 500")
+            code = 500
+            content = ""
         if isinstance(content, str):
             content = content.encode("utf-8")
             if not content_type:
@@ -68,19 +184,22 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
 
     def extract_key_from_path(self, path):
         return re.sub(r'/storage/?(\w+)', r'\1', path)
+    
+    def extract_host_from_path(self, path):
+        return path.split('=')[1]
 
     def do_PUT(self):
         content_length = int(self.headers.get('content-length', 0))
         content_type = self.headers.get('Content-type',0)
 
         extern_key = self.extract_key_from_path(self.path)
-        key = find_key(extern_key)
-        logging.debug(f"PUT:key id: {key}, my id: {neighbor_ids[id]}")
-        local_key, successor = check_key(key)
+        key = chord.find_key(extern_key)
+        logging.debug(f"PUT:key id: {key}, my id: {chord.id}")
+        local_key, successor = chord.check_key(key)
         value = self.rfile.read(content_length)
         if local_key:
             logging.info(f"PUT: Storing value {value} of type {content_type} on intern key {key} extern key {extern_key}")
-            object_store[key] = value
+            chord.object_store[key] = value
             self.send_whole_response(200, f"Value stored for {str(extern_key)} \n")
         else:
             logging.info(f"PUT:Not local key, sending {value} on key {extern_key} to {successor}")
@@ -89,14 +208,17 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
             self.send_whole_response(r.status_code, r.text)
 
     def do_GET(self):
+        logging.debug(f"GET: {self.path}")
         if self.path.startswith("/storage"):
+            logging.debug("Get request recieved")
             extern_key = self.extract_key_from_path(self.path)
-            key = find_key(extern_key)
-            local_key, successor = check_key(key)
+            key = chord.find_key(extern_key)
+            local_key, successor = chord.check_key(key)
+            logging.debug("local key and successor found")
             if local_key:
-                if key in object_store:
-                    logging.info(f"GET:Responding with value {object_store[key]} at intern key {key}")
-                    self.send_whole_response(200, object_store[key])
+                if key in chord.object_store:
+                    logging.info(f"GET:Responding with value {chord.object_store[key]} at intern key {key}")
+                    self.send_whole_response(200, chord.object_store[key])
                 else:
                     logging.info(f"GET:No data stored at intern key {key}")
                     self.send_whole_response(404,
@@ -106,18 +228,103 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
                 r = requests.get(f"http://{successor}/storage/{extern_key}")
                 logging.debug(f"GET: Got status {r.status_code} response: {r.text}")
                 self.send_whole_response(r.status_code, r.text)
-
         elif self.path.startswith("/neighbors"):
-            response = [get_successor(), get_predecessor()]
+            response = [chord.get_successor(), chord.get_predecessor()]
             logging.info(f"GET: Responding with successors: {response}")
             self.send_whole_response(200, response)
         elif self.path.startswith("/66"):
-            successor = get_successor()
+            successor = chord.get_successor()
             logging.info(f"Got order 66, terminate {successor}")
             r = requests.get(f"http://{successor}/66")
             server.shutdown()
+        elif self.path.startswith("/node-info"):
+            info = chord.get_info()
+            logging.info(f"GET: Infor requested, sending {info}")
+            self.send_whole_response(200,info, content_type='application/json')
+        elif self.path.startswith("/successor"):
+            #Get ID of node trying to connect
+            logging.info(f"GET:Node wants to connect to ring: {self.path.split('/')}")
+            hostname = self.path.split('/')[2]
+            #Check wether current node should be successor
+            id = chord.find_key(hostname)
+            logging.info(f"GET:Node with hostname {hostname} and ID {id} wants to join the circle")
+            local_key, successor = chord.check_key(id)
+            if local_key:
+                self.send_whole_response(200, f"{chord.hostname}")
+            else:
+                logging.info(f"GET:Asking successor at {successor} wether ID {id} is its predecessor")
+                r = requests.get(f"http://{successor}/successor/{hostname}")
+                logging.debug(f"GET: Got status {r.status_code} response: {r.text}")
+                self.send_whole_response(r.status_code, r.text)
+        elif self.path.startswith("/predecessor"):
+            # logging.info("GET:Request for predecessor recieved")
+            predecessor = chord.get_predecessor()
+            if predecessor is None:
+                # logging.info("GET: Dont have a predecessor responding with 404")
+                self.send_whole_response(404, "")
+            else:
+                # logging.info(f"GET: Found predecessor responding with {predecessor}")
+                self.send_whole_response(200, predecessor)
         else:
             self.send_whole_response(404, "Unknown path: " + self.path)
+    
+    def do_POST(self):
+        global CHRASHED
+        if self.path.startswith("/join"):
+            if CHRASHED:
+                self.send_whole_response(500, "")
+            host = self.extract_host_from_path(self.path)
+            logging.info(f"POST:Joining ring at: {host}")
+            code, message = chord.join(host)
+            self.send_whole_response(code, message,inter_com=False)
+        elif self.path.startswith("/leave"):
+            if CHRASHED:
+                self.send_whole_response(500, "")
+            logging.info(f"POST: Leaving ring")
+            code, message = chord.leave()
+            self.send_whole_response(code, message,inter_com=False)
+        elif self.path.startswith("/sim-crash"):
+            logging.info("Simulating crash")
+            CHRASHED = True
+            self.send_whole_response(200, "Simulating chrash",inter_com=True)
+        elif self.path.startswith("/sim-recover"):
+            logging.info("Simulating recovery")
+            CHRASHED = False
+            successor = chord.get_successor()
+            if not chord.find_key(successor) == chord.id:
+                chord.create_ring()
+                chord.start_stabilize_timer()
+                chord.join(successor)
+            self.send_whole_response(200, "Simulating recovery",inter_com=False)
+        elif self.path.startswith("/notify"):
+            if CHRASHED:
+                self.send_whole_response(500, "")
+            host = self.path.split('/')[2]
+            # logging.info(f"POST: Got notified of possible predecessor from {host}")
+            code, message = chord.notify(host)
+            self.send_whole_response(code, message)
+        else:
+            logging.error("Unknown command")
+
+    def do_DELETE(self):
+        if self.path.startswith("/predecessor"):
+            logging.info("DELETE: Predecessor leaving ring")
+            chord.predecessor_left()
+            self.send_whole_response(200, "")
+        elif self.path.startswith("/successor"):
+            logging.info("DELETE: Successor leaving ring")
+            new_succesor = self.path.split('/')[2]  
+            chord.successor_left(new_succesor)
+            self.send_whole_response(200, "")
+        elif self.path.startswith("/node_crash"):
+            crashed_host = self.path.split('/')[2]
+            successor = self.path.split('/')[3]
+            logging.info(f"DELETE: Host {crashed_host} has chrashed, commencing cleanup")
+            chord.node_crash(crashed_host, successor)
+            self.send_whole_response(200, "")
+
+            
+            
 
 def arg_parser():
     PORT_DEFAULT = 8000
@@ -143,22 +350,13 @@ class ThreadingHttpServer(HTTPServer, socketserver.ThreadingMixIn):
 
 def run_server(args):
     global server
-    global neighbors
-    global neighbor_ids
-    global id
+    global chord
 
-    logging.basicConfig(filename=f'logs/node_{args.port}.log', level=logging.DEBUG)
+    logging.basicConfig(filename=f'logs/node_{args.port}.log', level=logging.INFO)
     server = ThreadingHttpServer(('', args.port), NodeHttpHandler)
-    
-    id = find_key(args.neighbors[0])
-    for neighbor in args.neighbors:
-        neighbors[find_key(neighbor)] = neighbor
-    
-    neighbor_ids = list(neighbors.keys())
-    neighbor_ids.sort()
-    id = neighbor_ids.index(id) 
-    logging.debug("NEIGHBORS:", neighbors)
 
+    chord = Chord(args)
+  
     def server_main():
         logging.info("Starting server on port {}. Neighbors: {}".format(args.port, args.neighbors))
         server.serve_forever()
