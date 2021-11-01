@@ -1,4 +1,4 @@
-from os import path
+from os import kill, path
 from subprocess import Popen, PIPE
 from signal import SIGINT, signal, SIGTERM
 import sys
@@ -8,6 +8,7 @@ NODES = []
 
 def signal_handle(signum, frame):
     print("Terminating processes")
+    kill_cluster(NODES, 'vho023')
     for p in PROCS:
         p.send_signal(SIGTERM)
         exit()
@@ -70,14 +71,18 @@ def run_cluster(num_nodes, port, cont=False):
         neighbors.append(f'{node}:{port}')
     
     command = []
+    print("node: ", NODES)
     for i,node in enumerate(NODES):
-        command = ["ssh", node, "python3", f"{path}/node.py", "-p", f"{port}"]
-        tmp = neighbors[0]
-        neighbors[0] = neighbors[i]
-        neighbors[i] = tmp
-        print(f"Running: {command+neighbors}")
-        PROCS.append(Popen(command+neighbors,stdin=PIPE, stdout=PIPE, stderr=PIPE))
+        command = ["ssh", node, f'cd {path}; python3.9 node.py -p {port} {node}:{port}']
+        print(f'Running: {command[2]}')
+        PROCS.append(Popen(command,stdin=PIPE, stdout=PIPE, stderr=PIPE))
     
+    with open("Nodes.txt", 'w') as f:
+        for node in NODES:
+            f.write(f"{node}:{port}\n")
+
+    print("Nodes written to file, ready for benchmark")
+
     if not cont:
         while(True):
             if len(PROCS) == 0:
@@ -94,6 +99,7 @@ def run_cluster(num_nodes, port, cont=False):
     return PROCS, NODES
 
 def kill_cluster(nodes, user):
+    print("Cleaning all nodes")
     for node in nodes:
         command = ['ssh', node.split(':')[0], 'killall', '-u', user]
         Popen(command,stdin=PIPE, stdout=PIPE, stderr=PIPE)

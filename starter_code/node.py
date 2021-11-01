@@ -4,7 +4,6 @@ from http.client import NOT_EXTENDED
 import json
 import re
 import signal
-import socket
 import socketserver
 import threading
 import logging
@@ -14,7 +13,7 @@ import time
 from http.server import BaseHTTPRequestHandler,HTTPServer
 
 CHRASHED = False
-M = 6
+M = 30
 chord = -1
 
 class Chord():
@@ -25,7 +24,8 @@ class Chord():
         self.predecessor = -1
         self.hostname = args.neighbors[0]
         self.id = self.find_key(self.hostname)
-
+        self.stabalizing = False
+        self.critical = False
         self.create_ring()
         self.start_stabilize_timer()
         logging.debug(f"Succsessor: {self.successor}")
@@ -36,21 +36,30 @@ class Chord():
         self.stabilize_thread.start()
 
     def stabilize_timer(self):
-        while not CHRASHED:
-            time.sleep(1)
+        while not CHRASHED and not self.critical:
+            time.sleep(0.1)
+            self.stabalizing = True
             self.stabilize()
             self.check_predecessor()
+            self.stabalizing = False
+
 
     def create_ring(self,):
+        self.critical = True
+        while(self.stabalizing):
+            pass
         self.predecessor = None
         self.successor = [self.id, self.hostname]
+        logging.info(f"Started own ring, successor is {self.successor}")
+        self.critical = False
 
     def join(self,host):
         self.predecessor = None
         r = requests.get(f"http://{host}/successor/{self.hostname}")
-        self.successor = [self.find_key, r.text]
+        self.successor = [self.find_key(r.text),r.text]
+        logging.info(f"Found successor, notifying {self.successor}")
         r = requests.post(f"http://{self.successor[1]}/notify/{self.hostname}")
-        self.stabilize()
+        # self.stabilize()
         return r.status_code, f"Connected to {self.successor[1]}"
 
     def stabilize(self,):
@@ -107,7 +116,6 @@ class Chord():
         else:
             r = requests.delete(f"http://{self.successor[1]}/node_crash/{hostname}/{successor}")
         
-
     def check_predecessor(self,):
         #Check if predecessor is still available
         #Make dummy request
@@ -149,7 +157,7 @@ class Chord():
         info = {
             "node_hash": hex(self.id),
             "successor": self.successor[1],
-            "others": [self.predecessor] if self.predecessor is not None else [],
+            "others": [self.predecessor[1]] if self.predecessor is not None else [],
         }
         return json.dumps(info)
 
@@ -239,7 +247,7 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
             server.shutdown()
         elif self.path.startswith("/node-info"):
             info = chord.get_info()
-            logging.info(f"GET: Infor requested, sending {info}")
+            # logging.info(f"GET: Infor requested, sending {info}")
             self.send_whole_response(200,info, content_type='application/json')
         elif self.path.startswith("/successor"):
             #Get ID of node trying to connect
@@ -276,6 +284,7 @@ class NodeHttpHandler(BaseHTTPRequestHandler):
             host = self.extract_host_from_path(self.path)
             logging.info(f"POST:Joining ring at: {host}")
             code, message = chord.join(host)
+            logging.info(f"POST:Joining ring at: {host}")
             self.send_whole_response(code, message,inter_com=False)
         elif self.path.startswith("/leave"):
             if CHRASHED:
@@ -352,7 +361,7 @@ def run_server(args):
     global server
     global chord
 
-    logging.basicConfig(filename=f'logs/node_{args.port}.log', level=logging.INFO)
+    logging.basicConfig(filename=f'logs/node_{args.neighbors[0]}.log', level=logging.INFO)
     server = ThreadingHttpServer(('', args.port), NodeHttpHandler)
 
     chord = Chord(args)
