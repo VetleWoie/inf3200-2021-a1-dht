@@ -37,17 +37,16 @@ class Chord():
 
     def stabilize_timer(self):
         while not CHRASHED and not self.critical:
-            time.sleep(0.1)
+            time.sleep(1)
             self.stabalizing = True
             self.stabilize()
             self.check_predecessor()
             self.stabalizing = False
 
-
     def create_ring(self,):
         self.critical = True
-        while(self.stabalizing):
-            pass
+        # while(self.stabalizing):
+        #     pass
         self.predecessor = None
         self.successor = [self.id, self.hostname]
         logging.info(f"Started own ring, successor is {self.successor}")
